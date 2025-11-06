@@ -6,6 +6,8 @@ from queuectl.core.job import Job
 from queuectl.core.storage import Storage
 from queuectl.core.worker import Worker
 from queuectl.utils.logger import get_logger
+from queuectl.core.dlq_manager import DLQManager
+from queuectl.core.config import Config
 
 # -----------------------------------------------------------
 # GLOBALS
@@ -111,6 +113,58 @@ def list(state):
             print(f"[{j['state'].upper()}] {j['id']} - {j['command']} (attempts: {j['attempts']})")
     except Exception as e:
         logger.error(f"Failed to list jobs: {e}")
+
+
+
+# -----------------------------------------------------------
+# DLQ COMMANDS
+# -----------------------------------------------------------
+@cli.group()
+def dlq():
+    """Dead Letter Queue management."""
+    pass
+
+@dlq.command("list")
+def dlq_list():
+    dlq = DLQManager()
+    jobs = dlq.list_dlq()
+    if not jobs:
+        print("DLQ empty.")
+    else:
+        for j in jobs:
+            print(f"[DEAD] {j['id']} - {j['command']} (attempts: {j['attempts']})")
+
+@dlq.command("retry")
+@click.argument("job_id")
+def dlq_retry(job_id):
+    dlq = DLQManager()
+    job = dlq.retry_job(job_id)
+    if job:
+        logger.info(f"Job {job.id} requeued successfully.")
+    else:
+        logger.error(f"Job {job_id} not found in DLQ.")
+
+# -----------------------------------------------------------
+# CONFIG COMMANDS
+# -----------------------------------------------------------
+@cli.group()
+def config():
+    """System configuration management."""
+    pass
+
+@config.command("show")
+def config_show():
+    c = Config()
+    print(f"max_retries: {c.get('max_retries')}")
+    print(f"base_backoff: {c.get('base_backoff')}")
+
+@config.command("set")
+@click.argument("key")
+@click.argument("value")
+def config_set(key, value):
+    c = Config()
+    c.set(key, value)
+    logger.info(f"Config {key} set to {value}")
 
 # -----------------------------------------------------------
 # MAIN
