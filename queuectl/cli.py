@@ -2,6 +2,7 @@ import json
 import threading
 import time
 import click
+import os
 from queuectl.core.job import Job
 from queuectl.core.storage import Storage
 from queuectl.core.worker import Worker
@@ -165,6 +166,43 @@ def config_set(key, value):
     c = Config()
     c.set(key, value)
     logger.info(f"Config {key} set to {value}")
+
+# -----------------------------------------------------------
+# STATUS COMMAND
+# -----------------------------------------------------------
+@cli.command()
+def status():
+    """Show system summary: workers, job counts, DLQ size."""
+    s = Storage()
+    counts = s.count_by_state()
+    workers = s.active_workers()
+    dlq_count = s.dlq_count()
+
+    print(f"Workers active: {workers}")
+    print("Job counts by state:")
+    for k, v in counts.items():
+        print(f"  {k:<10}: {v}")
+    print(f"DLQ size: {dlq_count}")
+
+# -----------------------------------------------------------
+# LOGS COMMANDS
+# -----------------------------------------------------------
+@cli.group()
+def logs():
+    """View job output logs."""
+    pass
+
+@logs.command("show")
+@click.argument("job_id")
+def logs_show(job_id):
+    """Show log file contents for a given job."""
+    log_path = os.path.join(os.path.expanduser("~"), ".queuectl", "logs", f"{job_id}.log")
+    if not os.path.exists(log_path):
+        print(f"No log found for job {job_id}")
+        return
+    with open(log_path, "r", encoding="utf-8") as f:
+        print(f.read())
+
 
 # -----------------------------------------------------------
 # MAIN
