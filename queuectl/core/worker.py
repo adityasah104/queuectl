@@ -57,9 +57,15 @@ class Worker(threading.Thread):
 
     # --------------------------------------------------------------
     def _fetch_pending_job(self):
-        """Fetch one pending job and mark as processing."""
+        """Fetch one pending job (whose run_at is due) and mark as processing."""
         c = self.storage.conn.cursor()
-        c.execute("SELECT * FROM jobs WHERE state='pending' ORDER BY created_at LIMIT 1")
+        now = datetime.utcnow().isoformat()
+        c.execute("""
+            SELECT * FROM jobs
+            WHERE state='pending' AND (run_at IS NULL OR run_at <= ?)
+            ORDER BY COALESCE(run_at, created_at), created_at
+            LIMIT 1
+        """, (now,))
         row = c.fetchone()
         if not row:
             return None

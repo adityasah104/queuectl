@@ -67,14 +67,27 @@ def start_workers(count):
 @click.option("--command", "-c", help="Command to execute (alternative to JSON input)")
 @click.option("--file", "-f", "file_path", type=click.Path(exists=True),
               help="Path to a JSON file containing job data")
-def enqueue(job_json, command, file_path):
+@click.option("--run-at", help="ISO time to run at (e.g. 2025-11-07T10:00:00Z)")
+def enqueue(job_json, command, file_path, run_at):
     """Enqueue a new job.
 
     Examples:
         queuectl enqueue --command "echo Hello"
         queuectl enqueue -f job.json
         queuectl enqueue '{"command": "echo Hello"}'
+        queuectl enqueue --command "echo later" --run-at "2025-11-07T10:00:00Z"
     """
+    from datetime import datetime
+
+    def _normalize_iso(ts: str) -> str:
+        # Accept ...Z or ...+00:00 or naive. Store as naive UTC ISO string for consistency.
+        try:
+            s = ts.replace("Z", "+00:00")
+            dt = datetime.fromisoformat(s)
+            return dt.replace(tzinfo=None).isoformat()
+        except Exception:
+            raise click.BadParameter("Invalid --run-at. Use ISO 8601, e.g. 2025-11-07T10:00:00Z")
+
     try:
         # --- 1️⃣ Choose input source ---
         if command:
@@ -87,12 +100,20 @@ def enqueue(job_json, command, file_path):
         else:
             raise click.UsageError("Please provide either --command, --file, or job_json input")
 
-        # --- 2️⃣ Create and store job ---
+        # --- 2️⃣ Optional schedule time ---
+        if run_at:
+            job_data["run_at"] = _normalize_iso(run_at)
+
+        # --- 3️⃣ Create and store job ---
         job = Job.from_dict(job_data)
         storage.add_job(job)
-        logger.info(f"Job {job.id} added successfully: {job.command}")
+        if run_at:
+            logger.info(f"Job {job.id} scheduled for {job.run_at}: {job.command}")
+        else:
+            logger.info(f"Job {job.id} added successfully: {job.command}")
     except Exception as e:
         logger.error(f"Failed to enqueue job: {e}")
+
 
 
 @cli.command()

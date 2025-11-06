@@ -31,6 +31,12 @@ class Storage:
             )
         ''')
 
+        # ✅ Safe migration: add run_at column if missing
+        try:
+            c.execute("ALTER TABLE jobs ADD COLUMN run_at TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already exists
+
         # Config table
         c.execute('''
             CREATE TABLE IF NOT EXISTS config (
@@ -74,10 +80,10 @@ class Storage:
     def add_job(self, job: Job):
         c = self.conn.cursor()
         c.execute('''
-            INSERT OR REPLACE INTO jobs (id, command, state, attempts, max_retries, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO jobs (id, command, state, attempts, max_retries, created_at, updated_at, run_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ''', (job.id, job.command, job.state, job.attempts,
-              job.max_retries, job.created_at, job.updated_at))
+              job.max_retries, job.created_at, job.updated_at, job.run_at))
         self.conn.commit()
 
     def get_jobs_by_state(self, state: str):
