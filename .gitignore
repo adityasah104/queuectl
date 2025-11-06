@@ -1,0 +1,19 @@
+# Byte-compiled / cache
+__pycache__/
+*.pyc
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# SQLite DB file
+*.db
+
+# OS / IDE files
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Pytest cache
+.pytest_cache/
