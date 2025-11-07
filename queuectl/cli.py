@@ -223,6 +223,22 @@ def logs_show(job_id):
         return
     with open(log_path, "r", encoding="utf-8") as f:
         print(f.read())
+# -----------------------------------------------------------
+# METRICS COMMAND (Phase 6)
+# -----------------------------------------------------------
+@cli.command()
+def metrics():
+    """Display job performance metrics summary."""
+    s = Storage()
+    data = s.get_metrics_summary()
+    if not data:
+        print("No metrics recorded yet.")
+        return
+
+    print("Job Metrics Summary:")
+    for row in data:
+        avg = f"{row['avg_time']:.2f}s" if row['avg_time'] else "N/A"
+        print(f"{row['status']:<10}: {row['count']} jobs, avg time {avg}")
 
 
 # -----------------------------------------------------------

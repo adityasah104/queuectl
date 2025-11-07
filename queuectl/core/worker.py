@@ -113,6 +113,7 @@ class Worker(threading.Thread):
             out = proc.stdout.decode(errors="replace").strip()
             err = proc.stderr.decode(errors="replace").strip()
 
+            # Write job output to log
             with open(log_file, "a", encoding="utf-8") as f:
                 f.write(f"=== Job {job_id} START {start_ts} ===\n")
                 f.write(f"Command: {cmd}\n")
@@ -122,8 +123,16 @@ class Worker(threading.Thread):
                 f.write(f"Exit: 0\n")
                 f.write(f"=== Job {job_id} END {datetime.utcnow().isoformat()} ===\n\n")
 
+            # Mark job as completed
             self.storage.update_job_state(job_id, "completed", attempts)
             logger.info(f"Worker-{self.worker_id} completed {job_id}")
+
+            # ✅ Record metrics (Phase 6)
+            try:
+                duration = (datetime.utcnow() - datetime.fromisoformat(start_ts)).total_seconds()
+                self.storage.record_metric(job_id, duration, "completed")
+            except Exception as e:
+                logger.warning(f"Failed to record completion metric for {job_id}: {e}")
 
         except subprocess.TimeoutExpired:
             msg = f"timeout after {timeout_sec}s"
@@ -139,6 +148,7 @@ class Worker(threading.Thread):
 
     # --------------------------------------------------------------
     def _handle_failure(self, job, attempts, base_backoff, max_retries, reason: str):
+        """Handle job retry, exponential backoff, and DLQ move."""
         job_id = job["id"]
 
         if attempts < max_retries:
@@ -152,3 +162,9 @@ class Worker(threading.Thread):
             job["max_retries"] = max_retries
             self.storage.update_job_state(job_id, "dead", attempts)
             self.dlq.add_to_dlq(job)
+
+            # ✅ Record failed job metric (Phase 6)
+            try:
+                self.storage.record_metric(job_id, 0.0, "failed")
+            except Exception as e:
+                logger.warning(f"Failed to record failure metric for {job_id}: {e}")

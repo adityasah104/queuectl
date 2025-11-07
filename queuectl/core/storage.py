@@ -18,7 +18,7 @@ class Storage:
         """Create all necessary tables safely if they don't exist."""
         c = self.conn.cursor()
 
-        # Main job table
+        # Main jobs table
         c.execute('''
             CREATE TABLE IF NOT EXISTS jobs (
                 id TEXT PRIMARY KEY,
@@ -31,13 +31,18 @@ class Storage:
             )
         ''')
 
-        # ✅ Safe migration: add run_at column if missing
+        # ✅ Safe migrations for new columns
         try:
             c.execute("ALTER TABLE jobs ADD COLUMN run_at TEXT")
         except sqlite3.OperationalError:
-            pass  # column already exists
+            pass
 
-        # Config table
+        try:
+            c.execute("ALTER TABLE jobs ADD COLUMN priority INTEGER DEFAULT 5")
+        except sqlite3.OperationalError:
+            pass
+
+        # Configuration table
         c.execute('''
             CREATE TABLE IF NOT EXISTS config (
                 key TEXT PRIMARY KEY,
@@ -45,7 +50,7 @@ class Storage:
             )
         ''')
 
-        # Dead Letter Queue
+        # Dead Letter Queue table
         c.execute('''
             CREATE TABLE IF NOT EXISTS dlq (
                 id TEXT PRIMARY KEY,
@@ -56,7 +61,7 @@ class Storage:
             )
         ''')
 
-        # Worker heartbeat table
+        # Worker heartbeats table
         c.execute('''
             CREATE TABLE IF NOT EXISTS worker_heartbeats (
                 worker_id TEXT PRIMARY KEY,
@@ -67,7 +72,18 @@ class Storage:
             )
         ''')
 
-        # Default config values
+        # ✅ NEW: Metrics table (Phase 6)
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS metrics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id TEXT,
+                duration REAL,
+                status TEXT,
+                finished_at TEXT
+            )
+        ''')
+
+        # Default configs
         c.execute("INSERT OR IGNORE INTO config (key,value) VALUES ('max_retries','3')")
         c.execute("INSERT OR IGNORE INTO config (key,value) VALUES ('base_backoff','2')")
         c.execute("INSERT OR IGNORE INTO config (key,value) VALUES ('job_timeout_sec','60')")
@@ -146,17 +162,6 @@ class Storage:
     def active_workers(self, freshness_sec=5):
         import datetime as _dt
         c = self.conn.cursor()
-        # Ensure table exists (safety guard)
-        c.execute('''
-            CREATE TABLE IF NOT EXISTS worker_heartbeats (
-                worker_id TEXT PRIMARY KEY,
-                pid INTEGER,
-                hostname TEXT,
-                started_at TEXT,
-                last_seen TEXT
-            )
-        ''')
-        self.conn.commit()
         c.execute("SELECT worker_id,last_seen FROM worker_heartbeats")
         now = _dt.datetime.utcnow()
         active = 0
@@ -165,3 +170,25 @@ class Storage:
             if (now - last).total_seconds() <= freshness_sec:
                 active += 1
         return active
+
+    # ------------------------------------------------------------------
+    # ✅ PHASE 6: Metrics helpers
+    # ------------------------------------------------------------------
+    def record_metric(self, job_id: str, duration: float, status: str):
+        """Insert a metric entry for job completion or failure."""
+        c = self.conn.cursor()
+        c.execute('''
+            INSERT INTO metrics (job_id, duration, status, finished_at)
+            VALUES (?, ?, ?, ?)
+        ''', (job_id, duration, status, datetime.utcnow().isoformat()))
+        self.conn.commit()
+
+    def get_metrics_summary(self):
+        """Return aggregated job metrics summary."""
+        c = self.conn.cursor()
+        c.execute('''
+            SELECT status, COUNT(*) AS count, AVG(duration) AS avg_time
+            FROM metrics
+            GROUP BY status
+        ''')
+        return [dict(r) for r in c.fetchall()]
