@@ -311,4 +311,4 @@ queuectl/
 
 ## ⚙️ License
 
-MIT License © 2025 Aditya Sah
+© 2025 Aditya Sah
