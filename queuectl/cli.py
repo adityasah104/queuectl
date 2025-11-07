@@ -26,6 +26,7 @@ def cli():
     """QueueCTL - Background Job Queue System"""
     pass
 
+
 # -----------------------------------------------------------
 # WORKER COMMANDS
 # -----------------------------------------------------------
@@ -42,22 +43,41 @@ def start_workers(count):
     global _workers, _stop_event
     _stop_event.clear()
 
+    # ✅ Clear previous shutdown signal
+    storage.set_control("shutdown", "0")
+
     for i in range(count):
         w = Worker(i + 1, _stop_event)
         w.start()
         _workers.append(w)
 
-    logger.info(f"Started {count} workers. Press Ctrl+C to stop.")
+    logger.info(f"Started {count} workers. Press Ctrl+C or run 'queuectl worker stop' to stop.")
 
     try:
         while True:
+            # 🕵️ Exit automatically if all workers finished
+            alive_workers = [w for w in _workers if w.is_alive()]
+            if not alive_workers:
+                logger.info("✅ All workers have exited. Exiting CLI.")
+                break
             time.sleep(1)
     except KeyboardInterrupt:
-        logger.info("Stopping workers...")
+        logger.info("Stopping workers manually (Ctrl+C)...")
         _stop_event.set()
         for w in _workers:
             w.join()
         logger.info("All workers stopped.")
+
+
+@worker.command("stop")
+@click.option("--wait", type=int, default=5, help="Seconds to wait for workers to exit")
+def stop_workers(wait):
+    """Signal workers to stop via DB flag (graceful, cross-platform)."""
+    storage.set_control("shutdown", "1")
+    logger.info("Shutdown flag set. Workers will stop gracefully.")
+    time.sleep(wait)
+    logger.info("Done.")
+
 
 # -----------------------------------------------------------
 # JOB COMMANDS
@@ -68,25 +88,18 @@ def start_workers(count):
 @click.option("--file", "-f", "file_path", type=click.Path(exists=True),
               help="Path to a JSON file containing job data")
 @click.option("--run-at", help="ISO time to run at (e.g. 2025-11-07T10:00:00Z)")
-def enqueue(job_json, command, file_path, run_at):
-    """Enqueue a new job.
-
-    Examples:
-        queuectl enqueue --command "echo Hello"
-        queuectl enqueue -f job.json
-        queuectl enqueue '{"command": "echo Hello"}'
-        queuectl enqueue --command "echo later" --run-at "2025-11-07T10:00:00Z"
-    """
+@click.option("--priority", type=int, default=5, help="Job priority (lower runs sooner)")  # ✅ NEW
+def enqueue(job_json, command, file_path, run_at, priority):
+    """Enqueue a new job."""
     from datetime import datetime
 
     def _normalize_iso(ts: str) -> str:
-        # Accept ...Z or ...+00:00 or naive. Store as naive UTC ISO string for consistency.
         try:
             s = ts.replace("Z", "+00:00")
             dt = datetime.fromisoformat(s)
             return dt.replace(tzinfo=None).isoformat()
         except Exception:
-            raise click.BadParameter("Invalid --run-at. Use ISO 8601, e.g. 2025-11-07T10:00:00Z")
+            raise click.BadParameter("Invalid --run-at format")
 
     try:
         # --- 1️⃣ Choose input source ---
@@ -104,18 +117,24 @@ def enqueue(job_json, command, file_path, run_at):
         if run_at:
             job_data["run_at"] = _normalize_iso(run_at)
 
-        # --- 3️⃣ Create and store job ---
+        # --- 3️⃣ Include job priority ---
+        job_data["priority"] = priority
+
+        # --- 4️⃣ Create & persist job ---
         job = Job.from_dict(job_data)
         storage.add_job(job)
+
+        msg = f"Job {job.id} added successfully (priority={priority}): {job.command}"
         if run_at:
-            logger.info(f"Job {job.id} scheduled for {job.run_at}: {job.command}")
-        else:
-            logger.info(f"Job {job.id} added successfully: {job.command}")
+            msg = f"Job {job.id} scheduled for {job.run_at} (priority={priority}): {job.command}"
+        logger.info(msg)
     except Exception as e:
         logger.error(f"Failed to enqueue job: {e}")
 
 
-
+# -----------------------------------------------------------
+# JOB LISTING
+# -----------------------------------------------------------
 @cli.command()
 @click.option("--state", default=None,
               help="Filter jobs by state (pending/completed/failed)")
@@ -132,10 +151,10 @@ def list(state):
             return
 
         for j in jobs:
-            print(f"[{j['state'].upper()}] {j['id']} - {j['command']} (attempts: {j['attempts']})")
+            print(f"[{j['state'].upper()}] {j['id']} - {j['command']} "
+                  f"(attempts: {j['attempts']}, priority: {j.get('priority', 5)})")
     except Exception as e:
         logger.error(f"Failed to list jobs: {e}")
-
 
 
 # -----------------------------------------------------------
@@ -145,6 +164,7 @@ def list(state):
 def dlq():
     """Dead Letter Queue management."""
     pass
+
 
 @dlq.command("list")
 def dlq_list():
@@ -156,6 +176,7 @@ def dlq_list():
         for j in jobs:
             print(f"[DEAD] {j['id']} - {j['command']} (attempts: {j['attempts']})")
 
+
 @dlq.command("retry")
 @click.argument("job_id")
 def dlq_retry(job_id):
@@ -166,6 +187,7 @@ def dlq_retry(job_id):
     else:
         logger.error(f"Job {job_id} not found in DLQ.")
 
+
 # -----------------------------------------------------------
 # CONFIG COMMANDS
 # -----------------------------------------------------------
@@ -174,11 +196,14 @@ def config():
     """System configuration management."""
     pass
 
+
 @config.command("show")
 def config_show():
     c = Config()
     print(f"max_retries: {c.get('max_retries')}")
     print(f"base_backoff: {c.get('base_backoff')}")
+    print(f"job_timeout_sec: {c.get('job_timeout_sec')}")
+
 
 @config.command("set")
 @click.argument("key")
@@ -187,6 +212,7 @@ def config_set(key, value):
     c = Config()
     c.set(key, value)
     logger.info(f"Config {key} set to {value}")
+
 
 # -----------------------------------------------------------
 # STATUS COMMAND
@@ -205,6 +231,7 @@ def status():
         print(f"  {k:<10}: {v}")
     print(f"DLQ size: {dlq_count}")
 
+
 # -----------------------------------------------------------
 # LOGS COMMANDS
 # -----------------------------------------------------------
@@ -212,6 +239,7 @@ def status():
 def logs():
     """View job output logs."""
     pass
+
 
 @logs.command("show")
 @click.argument("job_id")
@@ -223,8 +251,10 @@ def logs_show(job_id):
         return
     with open(log_path, "r", encoding="utf-8") as f:
         print(f.read())
+
+
 # -----------------------------------------------------------
-# METRICS COMMAND (Phase 6)
+# METRICS COMMAND
 # -----------------------------------------------------------
 @cli.command()
 def metrics():

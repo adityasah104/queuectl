@@ -7,7 +7,6 @@ DB_FILE = os.path.join(os.path.expanduser("~"), ".queuectl.db")
 
 class Storage:
     def __init__(self):
-        # Ensure DB directory exists
         os.makedirs(os.path.dirname(DB_FILE), exist_ok=True)
         self.conn = sqlite3.connect(DB_FILE, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
@@ -50,7 +49,7 @@ class Storage:
             )
         ''')
 
-        # Dead Letter Queue table
+        # Dead Letter Queue
         c.execute('''
             CREATE TABLE IF NOT EXISTS dlq (
                 id TEXT PRIMARY KEY,
@@ -61,7 +60,7 @@ class Storage:
             )
         ''')
 
-        # Worker heartbeats table
+        # Worker heartbeats
         c.execute('''
             CREATE TABLE IF NOT EXISTS worker_heartbeats (
                 worker_id TEXT PRIMARY KEY,
@@ -72,7 +71,7 @@ class Storage:
             )
         ''')
 
-        # ✅ NEW: Metrics table (Phase 6)
+        # ✅ Metrics (Phase 6)
         c.execute('''
             CREATE TABLE IF NOT EXISTS metrics (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -80,6 +79,14 @@ class Storage:
                 duration REAL,
                 status TEXT,
                 finished_at TEXT
+            )
+        ''')
+
+        # Control table for global flags
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS control (
+                key TEXT PRIMARY KEY,
+                value TEXT
             )
         ''')
 
@@ -94,22 +101,24 @@ class Storage:
     # Job Operations
     # ------------------------------------------------------------------
     def add_job(self, job: Job):
+        """Insert or replace job entry."""
         c = self.conn.cursor()
         c.execute('''
-            INSERT OR REPLACE INTO jobs (id, command, state, attempts, max_retries, created_at, updated_at, run_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO jobs
+            (id, command, state, attempts, max_retries, created_at, updated_at, run_at, priority)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (job.id, job.command, job.state, job.attempts,
-              job.max_retries, job.created_at, job.updated_at, job.run_at))
+              job.max_retries, job.created_at, job.updated_at, job.run_at, job.priority))
         self.conn.commit()
 
     def get_jobs_by_state(self, state: str):
         c = self.conn.cursor()
-        c.execute('SELECT * FROM jobs WHERE state=?', (state,))
+        c.execute('SELECT * FROM jobs WHERE state=? ORDER BY priority ASC, created_at ASC', (state,))
         return [dict(r) for r in c.fetchall()]
 
     def get_all_jobs(self):
         c = self.conn.cursor()
-        c.execute('SELECT * FROM jobs')
+        c.execute('SELECT * FROM jobs ORDER BY priority ASC, created_at ASC')
         return [dict(r) for r in c.fetchall()]
 
     def get_job(self, job_id: str):
@@ -172,7 +181,7 @@ class Storage:
         return active
 
     # ------------------------------------------------------------------
-    # ✅ PHASE 6: Metrics helpers
+    # ✅ Metrics helpers
     # ------------------------------------------------------------------
     def record_metric(self, job_id: str, duration: float, status: str):
         """Insert a metric entry for job completion or failure."""
@@ -192,3 +201,17 @@ class Storage:
             GROUP BY status
         ''')
         return [dict(r) for r in c.fetchall()]
+    
+    # Stop Button
+
+    def set_control(self, key: str, value: str):
+        c = self.conn.cursor()
+        c.execute("INSERT OR REPLACE INTO control (key, value) VALUES (?,?)", (key, value))
+        self.conn.commit()
+
+    def get_control(self, key: str, default=None):
+        c = self.conn.cursor()
+        c.execute("SELECT value FROM control WHERE key=?", (key,))
+        row = c.fetchone()
+        return row["value"] if row else default
+

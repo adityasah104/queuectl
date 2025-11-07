@@ -40,6 +40,10 @@ class Worker(threading.Thread):
         next_hb = time.time()
 
         while not self.stop_event.is_set():
+            flag = (self.storage.get_control("shutdown") or "").lower()
+            if flag in ("1", "true", "yes"):
+                logger.info(f"Worker-{self.worker_id} received shutdown flag.")
+                break
             now = time.time()
             if now >= next_hb:
                 self.storage.upsert_heartbeat(self.worker_id, self.pid, self.hostname)
