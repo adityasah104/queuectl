@@ -276,7 +276,7 @@ queuectl/
 
 ---
 
-## 🌟 Bonus Features Implemented
+## 🌟 Additional Features
 
 | Feature                             | Status |
 | ----------------------------------- | ------ |
@@ -300,33 +300,6 @@ queuectl/
 * Dashboard designed for local monitoring (Flask lightweight server).
 * Logs stored per-job in `.queuectl/logs` for easy inspection.
 
----
-
-## 🧾 Demo Video
-
-🎥 **Watch the full demo here:**
-👉 [**QueueCTL Demo (Google Drive)**](https://drive.google.com/your-demo-link-here)
-
----
-
-## ✅ Checklist
-
-| Requirement                                       | Status |
-| ------------------------------------------------- | :----: |
-| CLI Commands (enqueue, list, worker, dlq, config) |    ✅   |
-| Multi-worker execution                            |    ✅   |
-| Retry with exponential backoff                    |    ✅   |
-| Dead Letter Queue                                 |    ✅   |
-| Persistent job storage                            |    ✅   |
-| Job timeout handling                              |    ✅   |
-| Scheduled jobs                                    |    ✅   |
-| Job logging                                       |    ✅   |
-| Metrics tracking                                  |    ✅   |
-| Web dashboard                                     |    ✅   |
-| Graceful shutdown                                 |    ✅   |
-| README + Demo                                     |    ✅   |
-
----
 
 ## 👨‍💻 Author
 
