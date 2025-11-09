@@ -295,6 +295,14 @@ Job counts per minute for the last 60 minutes:
 
 ---
 
+## 🧪 Automated Testing
+
+A minimal test script is included to verify QueueCTL’s end-to-end functionality.
+
+### Run Tests
+```bash
+python test_queuectl.py
+
 ## 🧪 Test Scenarios
 
 | Scenario            | Expected Result            |
